@@ -10,30 +10,49 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"bytes"
 )
 
 type Image struct {
-	Name        string       `xml:"NAME"`
-	Id          int          `xml:"ID"`
-	Uid         int          `xml:"UID"`
-	Gid         int          `xml:"GID"`
-	Uname       string       `xml:"UNAME"`
-	Gname       string       `xml:"GNAME"`
-	Permissions *Permissions `xml:"PERMISSIONS"`
-	RegTime     string       `xml:"REG"`
-	Size        int          `xml:"SIZE"`
-	State       int          `xml:"STATE"`
-	Source      string       `xml:"SOURCE"`
-	Path        string       `xml:"PATH"`
-	Persistent  string       `xml:"PERSISTENT"`
-	DatastoreID int          `xml:"DATASTORE_ID"`
-	Datastore   string       `xml:"DATASTORE"`
-	FsType      string       `xml:"FSTYPE"`
-	RunningVMs  int          `xml:"RUNNING_VMS"`
+	XMLName		xml.Name
+	Name		string			`xml:"NAME"`
+	Description	string			`xml:"DESCRIPTION,omitempty"`
+	Id			int				`xml:"ID,omitempty"`
+	Uid			int				`xml:"UID,omitempty"`
+	Gid			int				`xml:"GID,omitempty"`
+	Uname		string			`xml:"UNAME,omitempty"`
+	Gname		string			`xml:"GNAME,omitempty"`
+	Permissions	*Permissions	`xml:"PERMISSIONS,omitempty"`
+	RegTime		string			`xml:"REG,omitempty"`
+	Size		int				`xml:"SIZE,omitempty"`
+	State		int				`xml:"STATE,omitempty"`
+	Source		string			`xml:"SOURCE,omitempty"`
+	Path		string			`xml:"PATH,omitempty"`
+	Persistent	string			`xml:"PERSISTENT,omitempty"`
+	DatastoreID	int				`xml:"DATASTORE_ID,omitempty"`
+	Datastore	string			`xml:"DATASTORE,omitempty"`
+	FsType		string			`xml:"FSTYPE,omitempty"`
+	Type		string			`xml:"TYPE,omitempty"`
+	DevPrefix	string			`xml:"DEV_PREFIX,omitempty"` //For image creation
+	Target		string			`xml:"TARGET,omitempty"`  //For image creation
+	Driver		string			`xml:"DRIVER,omitempty"` //For image creation
+	Format		string			`xml:"FORMAT,omitempty"` //For image creation
+	MD5			string			`xml:"MD5,omitempty"` //For image creation
+	SHA1		string			`xml:"SHA1,omitempty"`	 //For image creation
+	Template	*ImageTemplate	`xml:"TEMPLATE,omitempty"`
 }
 
 type Images struct {
-	Image []*Image `xml:"IMAGE"`
+	Image		[]*Image `xml:"IMAGE"`
+}
+
+type ImageTemplate struct {
+	DevPrefix	string		`xml:"DEV_PREFIX,omitempty"`
+	Driver		string	   `xml:"DRIVER,omitempty"`
+	Format		string	   `xml:"FORMAT,omitempty"`
+	MD5			string	   `xml:"MD5,omitempty"`
+	SHA1		string	   `xml:"SHA1.omitempty"`
+
 }
 
 func resourceImage() *schema.Resource {
@@ -49,20 +68,21 @@ func resourceImage() *schema.Resource {
 
 		Schema: map[string]*schema.Schema{
 			"name": {
-				Type:        schema.TypeString,
-				Required:    true,
-				Description: "Name of the Image",
+				Type:			schema.TypeString,
+				Required:		true,
+				Description:	"Name of the Image",
 			},
 			"description": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Description: "Description of the Image, in OpenNebula's XML or String format",
+				Type:			schema.TypeString,
+				Optional:		true,
+				Description:	"Description of the Image, in OpenNebula's XML or String format",
 			},
 			"permissions": {
-				Type:        schema.TypeString,
-				Required:    true,
-				Description: "Permissions for the Image (in Unix format, owner-group-other, use-manage-admin)",
-				ValidateFunc: func(v interface{}, k string) (ws []string, errors []error) {
+				Type:			schema.TypeString,
+				Optional:		true,
+				Computed:		true,
+				Description:	"Permissions for the Image (in Unix format, owner-group-other, use-manage-admin)",
+				ValidateFunc: 	func(v interface{}, k string) (ws []string, errors []error) {
 					value := v.(string)
 
 					if len(value) != 3 {
@@ -84,40 +104,90 @@ func resourceImage() *schema.Resource {
 			},
 
 			"uid": {
-				Type:        schema.TypeInt,
-				Computed:    true,
-				Description: "ID of the user that will own the Image",
+				Type:			schema.TypeInt,
+				Computed:		true,
+				Description:	"ID of the user that will own the Image",
 			},
 			"gid": {
-				Type:        schema.TypeInt,
-				Computed:    true,
-				Description: "ID of the group that will own the Image",
+				Type:			schema.TypeInt,
+				Computed:		true,
+				Description:	"ID of the group that will own the Image",
 			},
 			"uname": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "Name of the user that will own the Image",
+				Type:			schema.TypeString,
+				Computed:		true,
+				Description:	"Name of the user that will own the Image",
 			},
 			"gname": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "Name of the group that will own the Image",
+				Type:			schema.TypeString,
+				Computed:		true,
+				Description:	"Name of the group that will own the Image",
 			},
 			"clone_from_image": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Description: "Name of the Image to be cloned from. If Image Name is empty, a new Image will be created",
+				Type:			schema.TypeString,
+				Optional:		true,
+				ForceNew:		true,
+				Description:	"ID or name of the Image to be cloned from",
+				ConflictsWith:	[]string{"path"},
 			},
 			"datastore_id": {
-				Type:        schema.TypeInt,
-				Required:    true,
-				Description: "ID of the datastore where Image will be stored",
+				Type:			schema.TypeInt,
+				Required:		true,
+				ForceNew:		true,
+				Description:	"ID of the datastore where Image will be stored",
 			},
 			"persistent": {
-				Type:        schema.TypeBool,
-				Optional:    true,
-				Default:     true,
-				Description: "Flag which indicates if the Image has to be persistent",
+				Type:			schema.TypeBool,
+				Optional:		true,
+				Default:		false,
+				ForceNew:		true,
+				Description:	"Flag which indicates if the Image has to be persistent",
+			},
+			"path": {
+				Type:			schema.TypeString,
+				Optional:		true,
+				Computed:		true,
+				ForceNew:		true,
+				Description:	"Path to the new image (local path on the OpenNebula server or URL)",
+				ConflictsWith:	[]string{"clone_from_image"},
+			},
+			"type": {
+				Type:			schema.TypeString,
+				Optional:		true,
+				Computed:		true,
+				ForceNew:		true,
+				Description:	"Type of the new Image: OS, CDROM, DATABLOCK, KERNEL, RAMDISK, CONTEXT",
+				ValidateFunc: func (v interface{}, k string) (ws []string, errors []error) {
+					validtypes := []string{"OS", "CDROM", "DATABLOCK", "KERNEL", "RAMDISK", "CONTEXT"}
+					value := v.(string)
+
+					if ! in_array(value, validtypes) {
+						errors = append(errors, fmt.Errorf("Type %q must be one of: %s", k, strings.Join(validtypes,",")))
+					}
+
+					return
+				},
+			},
+			"size": {
+				Type:			schema.TypeInt,
+				ForceNew:		true,
+				Optional:		true,
+				Computed:		true,
+				Description:	"Size of the new image in MB",
+			},
+			"dev_prefix": {
+				Type:			schema.TypeString,
+				ForceNew:		true,
+				Optional:		true,
+				Computed:		true,
+				Description:	"Device prefix, normally one of: hd, sd, vd",
+			},
+			"driver": {
+				Type:			schema.TypeString,
+				ForceNew:		true,
+				Optional:		true,
+				Computed:		true,
+				Description:	"Driver to use, normally 'raw' or 'qcow2'",
 			},
 		},
 	}
@@ -129,34 +199,40 @@ func resourceImageCreate(d *schema.ResourceData, meta interface{}) error {
 	// Check if Image ID for cloning is set
 	if len(d.Get("clone_from_image").(string)) > 0 {
 		return resourceImageClone(d, meta)
+	} else { //Otherwise allocate a new image
+		client := meta.(*Client)
+
+		var resp string
+		var err error
+
+		imagexml, xmlerr := generateImageXML(d)
+		if xmlerr != nil {
+			return xmlerr
+		}
+
+		resp, err = client.Call(
+			"one.image.allocate",
+			imagexml,
+			d.Get("datastore_id"),
+		)
+
+		if err != nil {
+			return err
+		}
+
+		d.SetId(resp)
 	}
 
-	var isPersistent string
-	isPersistent = "NO"
-	if d.Get("persistent").(bool) {
-		isPersistent = "YES"
-	}
-
-	// Create base object
-	resp, err := client.Call(
-		"one.image.allocate",
-		fmt.Sprintf("NAME = \"%s\"\nPERSISTENT = \"%s\"\n", d.Get("name").(string), isPersistent)+d.Get("description").(string),
-		d.Get("datastore_id"),
-	)
-	if err != nil {
-		return err
-	}
-
-	d.SetId(resp)
-
-	_, err = waitForImageState(d, meta, "ready")
+	_, err := waitForImageState(d, meta, "ready")
 	if err != nil {
 		return fmt.Errorf("Error waiting for Image (%s) to be in state READY: %s", d.Id(), err)
 	}
 
 	// update permisions
-	if _, err = changePermissions(intId(d.Id()), permission(d.Get("permissions").(string)), client, "one.image.chmod"); err != nil {
-		return err
+	if _, ok := d.GetOk("permissions"); ok {
+		if _, err = changePermissions(intId(d.Id()), permission(d.Get("permissions").(string)), client, "one.image.chmod"); err != nil {
+			return err
+		}
 	}
 
 	return resourceImageRead(d, meta)
@@ -164,10 +240,16 @@ func resourceImageCreate(d *schema.ResourceData, meta interface{}) error {
 
 func resourceImageClone(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*Client)
+	var imageId int
 
-	imageId, err := getImageIdByName(d, meta)
-	if err != nil {
-		return fmt.Errorf("Unable to find Image by name %s", d.Get("clone_from_image"))
+	//Test if clone_from_image is an integer or not
+	if val, err := strconv.Atoi(d.Get("clone_from_image").(string)); err == nil {
+		imageId = val
+	} else {
+		imageId, err = getImageIdByName(d, meta)
+		if err != nil {
+			return fmt.Errorf("Unable to find Image by ID or name %s", d.Get("clone_from_image"))
+		}
 	}
 
 	// Clone Image from given ID
@@ -189,8 +271,10 @@ func resourceImageClone(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	// update permisions
-	if _, err = changePermissions(intId(d.Id()), permission(d.Get("permissions").(string)), client, "one.image.chmod"); err != nil {
-		return err
+	if _, ok := d.GetOk("permissions"); ok {
+		if _, err = changePermissions(intId(d.Id()), permission(d.Get("permissions").(string)), client, "one.image.chmod"); err != nil {
+			return err
+		}
 	}
 
 	// set persistency if needed
@@ -210,8 +294,6 @@ func waitForImageState(d *schema.ResourceData, meta interface{}, state string) (
 	var img *Image
 	client := meta.(*Client)
 
-	log.Printf("Waiting for Image (%s) to be in state Ready", d.Id())
-
 	stateConf := &resource.StateChangeConf{
 		Pending: []string{"anythingelse"},
 		Target:  []string{state},
@@ -224,19 +306,25 @@ func waitForImageState(d *schema.ResourceData, meta interface{}, state string) (
 						return nil, "", fmt.Errorf("Couldn't fetch Image state: %s", err)
 					}
 				} else {
-					return nil, "", fmt.Errorf("Could not find Image by ID %s", d.Id())
+					log.Printf("Image %v was not found", d.Id())
+					//We can't return nil or Terraform will keep waiting
+					//forever, so return an empty struct
+					img := &Image{}
+					return img, "notfound", nil
 				}
 			}
-			log.Printf("Image is currently in state %v", img.State)
+			log.Printf("Image %v is currently in state %v", img.Id, img.State)
 			if img.State == 1 {
 				return img, "ready", nil
+			} else if img.State == 5 {
+				return img, "error", fmt.Errorf("Image ID %v entered error state.", d.Id())
 			} else {
-				return nil, "anythingelse", nil
+				return img, "anythingelse", nil
 			}
 		},
-		Timeout:    10 * time.Minute,
-		Delay:      10 * time.Second,
-		MinTimeout: 3 * time.Second,
+		Timeout:	10 * time.Minute,
+		Delay:		10 * time.Second,
+		MinTimeout:	3 * time.Second,
 	}
 
 	return stateConf.WaitForState()
@@ -245,6 +333,15 @@ func waitForImageState(d *schema.ResourceData, meta interface{}, state string) (
 func resourceImageRead(d *schema.ResourceData, meta interface{}) error {
 	var img *Image
 	var imgs *Images
+
+	image_type_id_name := map[int]string {
+		0: "OS",
+		1: "CDROM",
+		2: "DATABLOCK",
+		3: "KERNEL",
+		4: "RAMDISK",
+		5: "CONTEXT",
+	}
 
 	client := meta.(*Client)
 	found := false
@@ -264,7 +361,7 @@ func resourceImageRead(d *schema.ResourceData, meta interface{}) error {
 
 	// Otherwise, try to find the Image by (user, name) as the de facto compound primary key
 	if d.Id() == "" || !found {
-		resp, err := client.Call("one.imagepool.info", -3, -1, -1)
+		resp, err := client.Call("one.imagepool.info", -2, -1, -1)
 		if err != nil {
 			return err
 		}
@@ -295,6 +392,18 @@ func resourceImageRead(d *schema.ResourceData, meta interface{}) error {
 	d.Set("uname", img.Uname)
 	d.Set("gname", img.Gname)
 	d.Set("permissions", permissionString(img.Permissions))
+	d.Set("persistent", img.Persistent)
+	d.Set("path", img.Path)
+
+	if imgtypeint, err := strconv.Atoi(img.Type); err == nil {
+		if val, ok := image_type_id_name[imgtypeint]; ok {
+			d.Set("type", val)
+		}
+	}
+
+	d.Set("size", img.Size)
+	d.Set("dev_prefix", img.Template.DevPrefix)
+	d.Set("driver", img.Template.Driver)
 
 	return nil
 }
@@ -393,5 +502,100 @@ func resourceImageDelete(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	log.Printf("[INFO] Successfully deleted Image %s\n", resp)
+
+	_, err = waitForImageState(d, meta, "notfound")
+	if err != nil {
+		return fmt.Errorf("Error waiting for Image (%s) to be in state NOTFOUND: %s", d.Id(), err)
+	}
+
 	return nil
+}
+
+
+
+func generateImageXML(d *schema.ResourceData) (string, error) {
+
+	var imagedescription string
+	var imagetype string
+	var imagesize int
+	var imagedevprefix string
+	var imagepersistent string
+	var imagetarget string
+	var imagedriver string
+	var imagepath string
+	//var imagedisktype string
+	var imagemd5 string
+	var imagesha1 string
+
+	imagename := d.Get("name").(string)
+
+	if val, ok := d.GetOk("description"); ok {
+		imagedescription = val.(string)
+	}
+
+	if val, ok := d.GetOk("type"); ok {
+		imagetype = val.(string)
+	}
+
+	if d.Get("persistent") != nil {
+		imagepersistent = "NO"
+		if d.Get("persistent") == true {
+			imagepersistent = "YES"
+		}
+	}
+
+	if val, ok := d.GetOk("size"); ok {
+		imagesize = val.(int)
+	}
+
+	if val, ok := d.GetOk("dev_prefix"); ok {
+		imagedevprefix = val.(string)
+	}
+
+	if val, ok := d.GetOk("target"); ok {
+		imagetarget = val.(string)
+	}
+
+	if val, ok := d.GetOk("driver"); ok {
+		imagedriver = val.(string)
+	}
+
+	if val, ok := d.GetOk("path"); ok {
+		imagepath = val.(string)
+	}
+
+	if val, ok := d.GetOk("md5"); ok {
+		imagemd5 = val.(string)
+	}
+
+	if val, ok := d.GetOk("sha1"); ok {
+		imagesha1 = val.(string)
+	}
+
+	imagetpl := &Image {
+		Name:				imagename,
+		Description: 		imagedescription,
+		Size:				imagesize,
+		Type:				imagetype,
+		Persistent:			imagepersistent,
+		DevPrefix:			imagedevprefix,
+		Target:				imagetarget,
+		Driver:				imagedriver,
+		Path:				imagepath,
+		MD5:				imagemd5,
+		SHA1:				imagesha1,
+	}
+
+	imagetpl.XMLName.Local = "IMAGE"
+
+	w := &bytes.Buffer{}
+
+	//Encode the Security Group template schema to XML
+	enc := xml.NewEncoder(w)
+	if err := enc.Encode(imagetpl); err != nil {
+		return "", err
+	}
+
+	log.Printf("[INFO] Image Definition XML: %s", w.String())
+	return w.String(), nil
 }

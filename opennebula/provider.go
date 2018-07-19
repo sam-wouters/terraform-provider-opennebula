@@ -28,11 +28,18 @@ func Provider() terraform.ResourceProvider {
 			},
 		},
 
+		DataSourcesMap: map[string]*schema.Resource{
+			"opennebula_image": dataImage(),
+			"opennebula_vnet":  dataVnet(),
+			"opennebula_secgroup": dataSecurityGroup(),
+		},
+
 		ResourcesMap: map[string]*schema.Resource{
 			"opennebula_template": resourceTemplate(),
 			"opennebula_vnet":     resourceVnet(),
 			"opennebula_vm":       resourceVm(),
 			"opennebula_image":    resourceImage(),
+			"opennebula_secgroup": resourceSecurityGroup(),
 		},
 
 		ConfigureFunc: providerConfigure,

@@ -33,6 +33,9 @@ func (c *Client) Call(command string, args ...interface{}) (string, error) {
 
 	args = append([]interface{}{c.session}, args...)
 
+	//log.Printf("XML-RPC command: %s", command)
+	//log.Printf("XML-RPC args: %s", args)
+
 	if err := c.Rcp.Call(command, args, &result); err != nil {
 		return "", err
 	}
