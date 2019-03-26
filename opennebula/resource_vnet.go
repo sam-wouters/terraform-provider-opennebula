@@ -29,6 +29,9 @@ type UserVnet struct {
 
 type VnetTemplate struct {
 	Description      string  `xml:"DESCRIPTION,omitempty"`
+	Vn_mad					 string  `xml:"VN_MAD,omitempty"`
+  Phydev           string  `xml:"PHYDEV,omitempty"`
+	Vlan_id          int     `xml:"VLAN_ID,omitempty"`
 	Security_Groups  string  `xml:"SECURITY_GROUPS,omitempty"`
 }
 
@@ -100,12 +103,30 @@ func resourceVnet() *schema.Resource {
 				Computed:    true,
 				Description: "Name of the group that will own the vnet",
 			},
+			"vn_mad": {
+				Type:					schema.TypeString,
+				Optional:			true,
+				Description:	"VN driver to use. If empty, defaults to 'fw'",
+			},
 			"bridge": {
 				Type:        schema.TypeString,
 				Optional:    true,
 				Computed:    true,
 				Description: "Name of the bridge interface to which the vnet should be associated",
 				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
+			},
+			"phydev": {
+				Type:				 schema.TypeString,
+				Optional:		 true,
+				Computed:    true,
+				Description: "Name of the physical device to which the vlan should be associated",
+				ConflictsWith:	[]string{"bridge", "reservation_vnet", "reservation_size"},
+			},
+			"vlan_id": {
+				Type:				schema.TypeInt,
+				Optional: 	true,
+				Description: "ID of the vlan to be associated",
+				ConflictsWith:	[]string{"bridge", "reservation_vnet", "reservation_size"},
 			},
 			"ip_start": {
 				Type:        schema.TypeString,
@@ -116,7 +137,7 @@ func resourceVnet() *schema.Resource {
 			"ip_size": {
 				Type:        schema.TypeInt,
 				Optional:    true,
-				Description: "Size (in number) of the ip range",
+				Description: "Size (in number) of the ip range, defaults to 1 if empty",
 				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
 			},
 			"hold_size": {
@@ -196,16 +217,40 @@ func resourceVnetCreate(d *schema.ResourceData, meta interface{}) error {
 		}
 
 	} else { //New VNET
+		var resp string
+		var err error
 
-		resp, err := client.Call(
-			"one.vn.allocate",
-			fmt.Sprintf("NAME = \"%s\"\n", d.Get("name").(string))+d.Get("description").(string)+"\nBRIDGE="+d.Get("bridge").(string),
-			-1,
-		)
+		// check if we want a bridge or a 802.1q network
+		if d.Get("vn_mad").(string) == "802.1q" {
+			pdev, pdevok := d.GetOk("phydev")
+			vlanid, vlanok := d.GetOk("vlan_id")
+			if pdevok && vlanok {
+				// build the vn template
+				vntmpl := "NAME=\"" + d.Get("name").(string) + "\"\n" +
+					"DESCRIPTION=\"" + d.Get("description").(string) + "\"\n" +
+					"VN_MAD=\"" + d.Get("vn_mad").(string) + "\"\n" +
+					"PHYDEV=\"" + pdev.(string) + "\"\n" +
+					"VLAN_ID=\"" + strconv.Itoa(vlanid.(int)) + "\"\n"
+
+				resp, err = client.Call(
+					"one.vn.allocate",
+					vntmpl,
+					-1,
+				)
+			} else {
+				return fmt.Errorf("Both phydev and vlan_id should be given")
+			}
+		} else {
+			resp, err = client.Call(
+				"one.vn.allocate",
+				fmt.Sprintf("NAME = \"%s\"\n", d.Get("name").(string))+d.Get("description").(string)+"\nBRIDGE="+d.Get("bridge").(string),
+				-1,
+			)
+		}
+
 		if err != nil {
 			return err
 		}
-
 		d.SetId(resp)
 		// update permisions
 		if _, ok := d.GetOk("permissions"); ok {
@@ -219,14 +264,21 @@ func resourceVnetCreate(d *schema.ResourceData, meta interface{}) error {
 		  TYPE = IP4,
 		  IP = %s,
 		  SIZE = %d ]`
-		_, a_err := client.Call(
-			"one.vn.add_ar",
-			intId(d.Id()),
-			fmt.Sprintf(address_range_string, d.Get("ip_start").(string), d.Get("ip_size").(int)),
-		)
-
-		if a_err != nil {
-			return a_err
+		var size int
+		if ar, ok := d.GetOk("ip_start"); ok {
+			if as, ok := d.GetOk("ip_size"); ok {
+				size = as.(int)
+			} else {
+				size = 1
+			}
+			_, a_err := client.Call(
+				"one.vn.add_ar",
+				intId(d.Id()),
+				fmt.Sprintf(address_range_string, ar.(string), size),
+			)
+			if a_err != nil {
+				return a_err
+			}
 		}
 
 		if d.Get("hold_size").(int) > 0 {
@@ -362,6 +414,7 @@ func resourceVnetExists(d *schema.ResourceData, meta interface{}) (bool, error) 
 }
 
 func resourceVnetUpdate(d *schema.ResourceData, meta interface{}) error {
+	d.Partial(true)
 	client := meta.(*Client)
 
 	if d.HasChange("description") {
@@ -401,6 +454,19 @@ func resourceVnetUpdate(d *schema.ResourceData, meta interface{}) error {
 		log.Printf("[INFO] Successfully updated name for Vnet %s\n", resp)
 	}
 
+	var vn_ar_cmd string
+	if d.HasChange("ip_start") {
+		oldv, _ := d.GetChange("ip_start")
+		if oldv.(string) == "" {
+			// new address address_range_string
+			vn_ar_cmd = "one.vn.add_ar"
+		} else {
+			log.Printf("[WARNING] Changing the IP address of the Vnet address range is currently not supported")
+		}
+	} else {
+		vn_ar_cmd = "one.vn.update_ar"
+	}
+
 	if d.HasChange("ip_size") {
 		var address_range_string = `AR = [
 		AR_ID = 0,
@@ -408,7 +474,7 @@ func resourceVnetUpdate(d *schema.ResourceData, meta interface{}) error {
 		IP = %s,
 		SIZE = %d ]`
 		resp, a_err := client.Call(
-			"one.vn.update_ar",
+			vn_ar_cmd,
 			intId(d.Id()),
 			fmt.Sprintf(address_range_string, d.Get("ip_start").(string), d.Get("ip_size").(int)),
 		)
@@ -416,11 +482,9 @@ func resourceVnetUpdate(d *schema.ResourceData, meta interface{}) error {
 		if a_err != nil {
 			return a_err
 		}
+		d.SetPartial("ip_start")
+		d.SetPartial("ip_size")
 		log.Printf("[INFO] Successfully updated size of address range for Vnet %s\n", resp)
-	}
-
-	if d.HasChange("ip_start") {
-		log.Printf("[WARNING] Changing the IP address of the Vnet address range is currently not supported")
 	}
 
 	if d.HasChange("permissions") && d.Get("permissions") != "" {
@@ -431,6 +495,7 @@ func resourceVnetUpdate(d *schema.ResourceData, meta interface{}) error {
 		log.Printf("[INFO] Successfully updated Vnet %s\n", resp)
 	}
 
+	d.Partial(false)
 	return nil
 }
 
