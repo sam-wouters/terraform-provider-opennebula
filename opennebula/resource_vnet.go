@@ -3,11 +3,12 @@ package opennebula
 import (
 	"encoding/xml"
 	"fmt"
-	"github.com/hashicorp/terraform/helper/schema"
 	"log"
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/hashicorp/terraform/helper/schema"
 )
 
 type UserVnets struct {
@@ -15,24 +16,24 @@ type UserVnets struct {
 }
 
 type UserVnet struct {
-	Name        string       `xml:"NAME"`
-	Id          int          `xml:"ID"`
-	Uid         int          `xml:"UID"`
-	Gid         int          `xml:"GID"`
-	Uname       string       `xml:"UNAME"`
-	Gname       string       `xml:"GNAME"`
-	Permissions *Permissions `xml:"PERMISSIONS"`
-	Bridge      string       `xml:"BRIDGE"`
-	ParentVnet  int          `xml:"PARENT_NETWORK_ID,omitempty"`
-	Template	*VnetTemplate	`xml:"TEMPLATE,omitempty"`
+	Name        string        `xml:"NAME"`
+	Id          int           `xml:"ID"`
+	Uid         int           `xml:"UID"`
+	Gid         int           `xml:"GID"`
+	Uname       string        `xml:"UNAME"`
+	Gname       string        `xml:"GNAME"`
+	Permissions *Permissions  `xml:"PERMISSIONS"`
+	Bridge      string        `xml:"BRIDGE"`
+	ParentVnet  int           `xml:"PARENT_NETWORK_ID,omitempty"`
+	Template    *VnetTemplate `xml:"TEMPLATE,omitempty"`
 }
 
 type VnetTemplate struct {
-	Description      string  `xml:"DESCRIPTION,omitempty"`
-	Vn_mad					 string  `xml:"VN_MAD,omitempty"`
-  Phydev           string  `xml:"PHYDEV,omitempty"`
-	Vlan_id          int     `xml:"VLAN_ID,omitempty"`
-	Security_Groups  string  `xml:"SECURITY_GROUPS,omitempty"`
+	Description     string `xml:"DESCRIPTION,omitempty"`
+	Vn_Mad          string `xml:"VN_MAD,omitempty"`
+	Phydev          string `xml:"PHYDEV,omitempty"`
+	Vlan_id         int    `xml:"VLAN_ID,omitempty"`
+	Security_Groups string `xml:"SECURITY_GROUPS,omitempty"`
 }
 
 func resourceVnet() *schema.Resource {
@@ -85,11 +86,13 @@ func resourceVnet() *schema.Resource {
 
 			"uid": {
 				Type:        schema.TypeInt,
+				Optional:    true,
 				Computed:    true,
 				Description: "ID of the user that will own the vnet",
 			},
 			"gid": {
 				Type:        schema.TypeInt,
+				Optional:    true,
 				Computed:    true,
 				Description: "ID of the group that will own the vnet",
 			},
@@ -104,67 +107,67 @@ func resourceVnet() *schema.Resource {
 				Description: "Name of the group that will own the vnet",
 			},
 			"vn_mad": {
-				Type:					schema.TypeString,
-				Optional:			true,
-				Description:	"VN driver to use. If empty, defaults to 'fw'",
-			},
-			"bridge": {
 				Type:        schema.TypeString,
 				Optional:    true,
-				Computed:    true,
-				Description: "Name of the bridge interface to which the vnet should be associated",
+				Description: "VN driver to use. If empty, defaults to 'fw'",
+			},
+			"bridge": {
+				Type:          schema.TypeString,
+				Optional:      true,
+				Computed:      true,
+				Description:   "Name of the bridge interface to which the vnet should be associated",
 				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
 			},
 			"phydev": {
-				Type:				 schema.TypeString,
-				Optional:		 true,
-				Computed:    true,
-				Description: "Name of the physical device to which the vlan should be associated",
-				ConflictsWith:	[]string{"bridge", "reservation_vnet", "reservation_size"},
+				Type:          schema.TypeString,
+				Optional:      true,
+				Computed:      true,
+				Description:   "Name of the physical device to which the vlan should be associated",
+				ConflictsWith: []string{"bridge", "reservation_vnet", "reservation_size"},
 			},
 			"vlan_id": {
-				Type:				schema.TypeInt,
-				Optional: 	true,
-				Description: "ID of the vlan to be associated",
-				ConflictsWith:	[]string{"bridge", "reservation_vnet", "reservation_size"},
+				Type:          schema.TypeInt,
+				Optional:      true,
+				Description:   "ID of the vlan to be associated",
+				ConflictsWith: []string{"bridge", "reservation_vnet", "reservation_size"},
 			},
 			"ip_start": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Description: "Start IP of the range to be allocated",
+				Type:          schema.TypeString,
+				Optional:      true,
+				Description:   "Start IP of the range to be allocated",
 				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
 			},
 			"ip_size": {
-				Type:        schema.TypeInt,
-				Optional:    true,
-				Description: "Size (in number) of the ip range, defaults to 1 if empty",
+				Type:          schema.TypeInt,
+				Optional:      true,
+				Description:   "Size (in number) of the ip range, defaults to 1 if empty",
 				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
 			},
 			"hold_size": {
-				Type:        schema.TypeInt,
-				Optional:    true,
-				Description: "Carve a network reservation of this size from the reservation starting from `ip-start`",
+				Type:          schema.TypeInt,
+				Optional:      true,
+				Description:   "Carve a network reservation of this size from the reservation starting from `ip-start`",
 				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
 			},
 			"reservation_vnet": {
-				Type:        schema.TypeInt,
-				Optional:    true,
-				ForceNew:    true,
-				Description: "Create a reservation from this VNET ID",
+				Type:          schema.TypeInt,
+				Optional:      true,
+				ForceNew:      true,
+				Description:   "Create a reservation from this VNET ID",
 				ConflictsWith: []string{"bridge", "ip_start", "ip_size", "hold_size"},
 			},
 			"reservation_size": {
-				Type:        schema.TypeInt,
-				Optional:    true,
-				Description: "Reserve this many IPs from reservation_vnet",
+				Type:          schema.TypeInt,
+				Optional:      true,
+				Description:   "Reserve this many IPs from reservation_vnet",
 				ConflictsWith: []string{"bridge", "ip_start", "ip_size", "hold_size"},
 			},
 			"security_groups": {
 				Type:        schema.TypeList,
 				Optional:    true,
 				Description: "List of Security Group IDs to be applied to the VNET",
-				Elem: &schema.Schema {
-					Type:	schema.TypeInt,
+				Elem: &schema.Schema{
+					Type: schema.TypeInt,
 				},
 			},
 		},
@@ -180,7 +183,7 @@ func resourceVnetCreate(d *schema.ResourceData, meta interface{}) error {
 		reservation_name := d.Get("name").(string)
 		reservation_size := d.Get("reservation_size").(int)
 
-		if reservation_vnet <= 0  {
+		if reservation_vnet <= 0 {
 			return fmt.Errorf("Reservation VNET ID must be greater than 0!")
 		} else if reservation_size <= 0 {
 			return fmt.Errorf("Reservation size must be greater than 0!")
@@ -252,6 +255,7 @@ func resourceVnetCreate(d *schema.ResourceData, meta interface{}) error {
 			return err
 		}
 		d.SetId(resp)
+
 		// update permisions
 		if _, ok := d.GetOk("permissions"); ok {
 			if _, err = changePermissions(intId(d.Id()), permission(d.Get("permissions").(string)), client, "one.vn.chmod"); err != nil {
@@ -435,8 +439,7 @@ func resourceVnetUpdate(d *schema.ResourceData, meta interface{}) error {
 			return nil
 		}
 
-
-		err = setVnetSecurityGroups(client, vnet_id, d.Get("security_groups").([]interface {}))
+		err = setVnetSecurityGroups(client, vnet_id, d.Get("security_groups").([]interface{}))
 		if err != nil {
 			return err
 		}
@@ -485,6 +488,33 @@ func resourceVnetUpdate(d *schema.ResourceData, meta interface{}) error {
 		d.SetPartial("ip_start")
 		d.SetPartial("ip_size")
 		log.Printf("[INFO] Successfully updated size of address range for Vnet %s\n", resp)
+	}
+
+	var change_own bool = false
+	var newuid int = -1
+	var newgid int = -1
+	if d.HasChange("uid") && d.Get("uid") != "" {
+		change_own = true
+		newuid = d.Get("uid").(int)
+	}
+	if d.HasChange("gid") && d.Get("gid") != "" {
+		change_own = true
+		newgid = d.Get("gid").(int)
+	}
+	if change_own {
+		resp, co_err := client.Call(
+			"one.vn.chown",
+			intId(d.Id()),
+			newuid,
+			newgid,
+		)
+
+		if co_err != nil {
+			return co_err
+		}
+		d.SetPartial("uid")
+		d.SetPartial("gid")
+		log.Printf("[INFO] Successfully updated owner uid and gid for Vnet %s\n", resp)
 	}
 
 	if d.HasChange("permissions") && d.Get("permissions") != "" {

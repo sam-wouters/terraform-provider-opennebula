@@ -32,6 +32,8 @@ func Provider() terraform.ResourceProvider {
 			"opennebula_image": dataImage(),
 			"opennebula_vnet":  dataVnet(),
 			"opennebula_secgroup": dataSecurityGroup(),
+			"opennebula_user": dataUser(),
+			"opennebula_group": dataGroup(),
 		},
 
 		ResourcesMap: map[string]*schema.Resource{
