@@ -34,6 +34,9 @@ type VnetTemplate struct {
 	Phydev          string `xml:"PHYDEV,omitempty"`
 	Vlan_id         int    `xml:"VLAN_ID,omitempty"`
 	Security_Groups string `xml:"SECURITY_GROUPS,omitempty"`
+	Dns             string `xml:"DNS,omitempty"`
+	Gateway         string `xml:"GATEWAY,omitempty"`
+	NetworkMask     string `xml:"NETWORK_MASK,omitempty"`
 }
 
 func resourceVnet() *schema.Resource {
@@ -170,6 +173,24 @@ func resourceVnet() *schema.Resource {
 					Type: schema.TypeInt,
 				},
 			},
+			"dns": {
+				Type:          schema.TypeString,
+				Optional:      true,
+				Description:   "CONTEXT: Space separated list of dns IPs",
+				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
+			},
+			"gateway": {
+				Type:          schema.TypeString,
+				Optional:      true,
+				Description:   "CONTEXT: Gateway IP",
+				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
+			},
+			"networkmask": {
+				Type:          schema.TypeString,
+				Optional:      true,
+				Description:   "CONTEXT: Network mask",
+				ConflictsWith: []string{"reservation_vnet", "reservation_size"},
+			},
 		},
 	}
 }
@@ -211,47 +232,49 @@ func resourceVnetCreate(d *schema.ResourceData, meta interface{}) error {
 
 		log.Printf("[DEBUG] New VNET reservation ID: %d", vnetid)
 
-		//Apply the security group rules to the reservation if defined
-		if security_groups, ok := d.GetOk("security_groups"); ok {
-			err := setVnetSecurityGroups(client, vnetid, security_groups.([]interface{}))
-			if err != nil {
-				return err
-			}
-		}
-
 	} else { //New VNET
 		var resp string
 		var err error
 
-		// check if we want a bridge or a 802.1q network
-		if d.Get("vn_mad").(string) == "802.1q" {
-			pdev, pdevok := d.GetOk("phydev")
-			vlanid, vlanok := d.GetOk("vlan_id")
-			if pdevok && vlanok {
-				// build the vn template
-				vntmpl := "NAME=\"" + d.Get("name").(string) + "\"\n" +
-					"DESCRIPTION=\"" + d.Get("description").(string) + "\"\n" +
-					"VN_MAD=\"" + d.Get("vn_mad").(string) + "\"\n" +
-					"PHYDEV=\"" + pdev.(string) + "\"\n" +
-					"VLAN_ID=\"" + strconv.Itoa(vlanid.(int)) + "\"\n"
-
-				resp, err = client.Call(
-					"one.vn.allocate",
-					vntmpl,
-					-1,
-				)
-			} else {
-				return fmt.Errorf("Both phydev and vlan_id should be given")
-			}
-		} else {
-			resp, err = client.Call(
-				"one.vn.allocate",
-				fmt.Sprintf("NAME = \"%s\"\n", d.Get("name").(string))+d.Get("description").(string)+"\nBRIDGE="+d.Get("bridge").(string),
-				-1,
-			)
+		// build the vn template
+		var vntmpl strings.Builder
+		fmt.Fprintf(&vntmpl, "NAME=\"%s\"", d.Get("name").(string))
+		if dscr, ok := d.GetOk("description"); ok {
+			fmt.Fprintf(&vntmpl, "\nDESCRIPTION=\"%s\"", dscr.(string))
 		}
-
+		if br, ok := d.GetOk("bridge"); ok {
+			fmt.Fprintf(&vntmpl, "\nBRIDGE=\"%s\"", br.(string))
+		}
+		if vnmad, ok := d.GetOk("vn_mad"); ok {
+			fmt.Fprintf(&vntmpl, "\nVN_MAD=\"%s\"", d.Get("vn_mad").(string))
+			if vnmad.(string) == "802.1q" {
+				pdev, pdevok := d.GetOk("phydev")
+				vlanid, vlanok := d.GetOk("vlan_id")
+				if pdevok && vlanok {
+					fmt.Fprintf(&vntmpl, "\nPHYDEV=\"%s\"", pdev.(string))
+					fmt.Fprintf(&vntmpl, "\nVLAN_ID=\"%d\"", vlanid.(int))
+				} else {
+					return fmt.Errorf("For vn_mad 802.1q, both phydev and vlan_id should be given")
+				}
+			}
+		}
+		// CONTEXT params
+		if nm, ok := d.GetOk("networkmask"); ok {
+			fmt.Fprintf(&vntmpl, "\nNETWORK_MASK=\"%s\"", nm.(string))
+		}
+		if gw, ok := d.GetOk("gateway"); ok {
+			fmt.Fprintf(&vntmpl, "\nGATEWAY=\"%s\"", gw.(string))
+		}
+		if dns, ok := d.GetOk("dns"); ok {
+			fmt.Fprintf(&vntmpl, "\nDNS=\"%s\"", dns.(string))
+		}
+		resp, err = client.Call(
+			"one.vn.allocate",
+			vntmpl.String(),
+			-1,
+		)
 		if err != nil {
+			log.Printf(vntmpl.String())
 			return err
 		}
 		d.SetId(resp)
@@ -305,6 +328,14 @@ func resourceVnetCreate(d *schema.ResourceData, meta interface{}) error {
 				ip[3]++
 			}
 
+		}
+	}
+
+	//Apply the security group rules if defined
+	if security_groups, ok := d.GetOk("security_groups"); ok {
+		err := setVnetSecurityGroups(client, intId(d.Id()), security_groups.([]interface{}))
+		if err != nil {
+			return err
 		}
 	}
 
@@ -386,6 +417,12 @@ func resourceVnetRead(d *schema.ResourceData, meta interface{}) error {
 	d.Set("bridge", vn.Bridge)
 	d.Set("reservation_vnet", vn.ParentVnet)
 	d.Set("permissions", permissionString(vn.Permissions))
+	d.Set("vn_mad", vn.Template.Vn_Mad)
+	d.Set("phydev", vn.Template.Phydev)
+	d.Set("vlan_id", vn.Template.Vlan_id)
+	d.Set("dns", vn.Template.Dns)
+	d.Set("gateway", vn.Template.Gateway)
+	d.Set("networkmask", vn.Template.NetworkMask)
 
 	secgroups_str := strings.Split(vn.Template.Security_Groups, ",")
 	secgroups_int := []int{}
@@ -431,6 +468,48 @@ func resourceVnetUpdate(d *schema.ResourceData, meta interface{}) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	if d.HasChange("dns") {
+		resp, err := client.Call(
+			"one.vn.update",
+			intId(d.Id()),
+			fmt.Sprintf("DNS=\"%s\"", d.Get("dns").(string)),
+			1,
+		)
+		if err != nil {
+			return err
+		}
+		d.SetPartial("dns")
+		log.Printf("[INFO] Successfully updated DNS for Vnet %s\n", resp)
+	}
+
+	if d.HasChange("gateway") {
+		resp, err := client.Call(
+			"one.vn.update",
+			intId(d.Id()),
+			fmt.Sprintf("GATEWAY=\"%s\"", d.Get("gateway").(string)),
+			1,
+		)
+		if err != nil {
+			return err
+		}
+		d.SetPartial("gateway")
+		log.Printf("[INFO] Successfully updated GATEWAY for Vnet %s\n", resp)
+	}
+
+	if d.HasChange("networkmask") {
+		resp, err := client.Call(
+			"one.vn.update",
+			intId(d.Id()),
+			fmt.Sprintf("NETWORK_MASK=\"%s\"", d.Get("networkmask").(string)),
+			1,
+		)
+		if err != nil {
+			return err
+		}
+		d.SetPartial("networkmask")
+		log.Printf("[INFO] Successfully updated NETWORK_MASK for Vnet %s\n", resp)
 	}
 
 	if d.HasChange("security_groups") {
