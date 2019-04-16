@@ -113,6 +113,16 @@ func resourceVnet() *schema.Resource {
 				Type:        schema.TypeString,
 				Optional:    true,
 				Description: "VN driver to use. If empty, defaults to 'fw'",
+				ValidateFunc: func(v interface{}, k string) (ws []string, errors []error) {
+					validdrivers := []string{"bridge", "fw", "802.1Q"}
+					value := v.(string)
+
+					if !in_array(value, validdrivers) {
+						errors = append(errors, fmt.Errorf("vn_mad %q must be one of: %s", k, strings.Join(validdrivers, ",")))
+					}
+
+					return
+				},
 			},
 			"bridge": {
 				Type:          schema.TypeString,
@@ -247,14 +257,14 @@ func resourceVnetCreate(d *schema.ResourceData, meta interface{}) error {
 		}
 		if vnmad, ok := d.GetOk("vn_mad"); ok {
 			fmt.Fprintf(&vntmpl, "\nVN_MAD=\"%s\"", d.Get("vn_mad").(string))
-			if vnmad.(string) == "802.1q" {
+			if vnmad.(string) == "802.1Q" {
 				pdev, pdevok := d.GetOk("phydev")
 				vlanid, vlanok := d.GetOk("vlan_id")
 				if pdevok && vlanok {
 					fmt.Fprintf(&vntmpl, "\nPHYDEV=\"%s\"", pdev.(string))
 					fmt.Fprintf(&vntmpl, "\nVLAN_ID=\"%d\"", vlanid.(int))
 				} else {
-					return fmt.Errorf("For vn_mad 802.1q, both phydev and vlan_id should be given")
+					return fmt.Errorf("For vn_mad 802.1Q, both phydev and vlan_id should be given")
 				}
 			}
 		}
